@@ -1,0 +1,6 @@
+-I../util/include
+-I../ast/include
+-I../ast/libprettyerr/src
+-I../include
+-I../fmt/include
+-Iinclude
