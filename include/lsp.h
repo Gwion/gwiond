@@ -79,14 +79,14 @@ void lsp_sync_change(const cJSON *params_json);
 void lsp_sync_close(const cJSON *params_json);
 
 /*
- * Runs a linter and returns LSP publish diagnostics notification.
+ * Runs a gwfmter and returns LSP publish diagnostics notification.
  */
-void lsp_lint(const char *uri, BUFFER buffer);
+void lsp_gwfmt(const char *uri, BUFFER buffer);
 void lsp_format(int id, const cJSON *params_json);
 /*
  * Clears diagnostics for a file with specified `uri`.
  */
-void lsp_lint_clear(const char *uri);
+void lsp_gwfmt_clear(const char *uri);
 
 /*
  * Parses LSP hover request, and returns hover information.

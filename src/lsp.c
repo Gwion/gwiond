@@ -58,6 +58,7 @@ cJSON* lsp_parse_content(unsigned long content_length) {
   return request;
 }
 
+void lsp_signature(int id, const cJSON *params_json);
 void json_rpc(const cJSON *request) {
   const char *method;
   int id = -1;
@@ -97,8 +98,12 @@ void json_rpc(const cJSON *request) {
     lsp_completion(id, params_json);
   else if(strcmp(method, "textDocument/formatting") == 0)
     lsp_format(id, params_json);
-//  else if(strcmp(method, "textDocument/signatureHelp") == 0)
-//    exit(44);//   lsp_signature(id, params_json);
+
+  else if(strcmp(method, "textDocument/signatureHelp") == 0) {
+fprintf(stderr, "received sig help request\n");
+    lsp_signature(id, params_json);
+  }
+  
 }
 
 // *********************
@@ -164,6 +169,7 @@ void lsp_send_notification(const char *method, cJSON *params) {
 // **************
 
 void lsp_initialize(int id) {
+fprintf(stderr, "hahahahahah");
   cJSON *result = cJSON_CreateObject();
   cJSON *capabilities = cJSON_AddObjectToObject(result, "capabilities");
   cJSON_AddNumberToObject(capabilities, "textDocumentSync", 1);
@@ -173,12 +179,12 @@ void lsp_initialize(int id) {
   cJSON_AddBoolToObject(capabilities, "documentFormattingProvider", 1);
   cJSON *completion = cJSON_AddObjectToObject(capabilities, "completionProvider");
   cJSON_AddBoolToObject(completion, "resolveProvider", 0);
-  /*
+  
     cJSON *signature = cJSON_AddObjectToObject(capabilities, "signatureHelpProvider");
-    cJSON *triggerCharacters = cJSON_AddArrayToObject(signature, "change");
+    cJSON *triggerCharacters = cJSON_AddArrayToObject(signature, "triggerCharacter");
     cJSON_AddItemToArray(triggerCharacters, cJSON_CreateString("("));
     cJSON_AddItemToArray(triggerCharacters, cJSON_CreateString(","));
-  */
+  
   lsp_send_response(id, result);
 }
 
@@ -198,7 +204,7 @@ void lsp_sync_open(const cJSON *params_json) {
   if(!uri || !text) exit(EXIT_CONTENT_INCOMPLETE);
 
   BUFFER buffer = open_buffer(uri, text);
-  lsp_lint(uri, buffer);
+  lsp_gwfmt(uri, buffer);
 }
 
 void lsp_sync_change(const cJSON *params_json) {
@@ -211,7 +217,7 @@ void lsp_sync_change(const cJSON *params_json) {
   if(!uri || !text) exit(EXIT_CONTENT_INCOMPLETE);
 
   BUFFER buffer = update_buffer(uri, text);
-  lsp_lint(uri, buffer);
+  lsp_gwfmt(uri, buffer);
 }
 
 void lsp_sync_close(const cJSON *params_json) {
@@ -221,10 +227,10 @@ void lsp_sync_close(const cJSON *params_json) {
   if(!uri) exit(EXIT_CONTENT_INCOMPLETE);
 
   close_buffer(uri);
-  lsp_lint_clear(uri);
+  lsp_gwfmt_clear(uri);
 }
 
-void lsp_lint(const char *uri, BUFFER buffer) {
+void lsp_gwfmt(const char *uri, BUFFER buffer) {
   cJSON *params = cJSON_CreateObject();
   cJSON_AddStringToObject(params, "uri", buffer.uri);
   cJSON *diagnostics = cJSON_AddArrayToObject(params, "diagnostics");
@@ -232,7 +238,7 @@ void lsp_lint(const char *uri, BUFFER buffer) {
   lsp_send_notification("textDocument/publishDiagnostics", params);
 }
 
-void lsp_lint_clear(const char *uri) {
+void lsp_gwfmt_clear(const char *uri) {
   cJSON *params = cJSON_CreateObject();
   cJSON_AddStringToObject(params, "uri", uri);
   cJSON_AddArrayToObject(params, "diagnostics");

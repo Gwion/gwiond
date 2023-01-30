@@ -13,6 +13,7 @@ LDFLAGS += ../ast/libgwion_ast.a
 LDFLAGS += ../ast/libprettyerr/libprettyerr.a
 LDFLAGS += ../util/libgwion_util.a
 LDFLAGS += -lm
+LDFLAGS += -O3
 
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
