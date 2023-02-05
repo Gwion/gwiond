@@ -6,7 +6,7 @@
 /*
  * Parse the `text` string and return info about the specified symbol.
  */
-cJSON* symbol_info(const char *symbol_name, const char *text);
+cJSON* symbol_info(const char *symbol_name, char *const text);
 
 /*
  * Parse the `text` string and return definition location of the specified symbol.

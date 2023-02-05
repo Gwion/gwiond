@@ -37,4 +37,5 @@ void truncate_string(char *text, int line, int character);
  */
 const char* extract_last_symbol(char *text);
 
+ANN void io_ini(MemPool mp);
 #endif /* end of include guard: IO_H */

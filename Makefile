@@ -24,7 +24,7 @@ all: options gwiond
 
 gwiond: ${OBJ}
 	$(info link $@)
-	@${CC} -fPIC -o gwiond $^ $(CJSON) ${LDFLAGS}
+	@${CC} -rdynamic -fPIC -o gwiond $^ $(CJSON) ${LDFLAGS}
 
 clean:
 	@rm -f gwiond ${OBJ}

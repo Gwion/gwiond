@@ -3,24 +3,29 @@
 #include <string.h>
 #include <ctype.h>
 #include "err_codes.h"
+#include "gwion_util.h"
 #include "io.h"
 
 BUFFER buffers[BUFFER_LENGTH];
 unsigned int first_empty_buf;
+static MemPool mp;
 
+void io_ini(MemPool _mp) {
+  mp = _mp;
+}
 BUFFER open_buffer(const char *uri, const char *content) {
   if(first_empty_buf >= BUFFER_LENGTH)
     exit(EXIT_BUFFERS_FULL);
-  buffers[first_empty_buf].uri = strdup(uri);
-  buffers[first_empty_buf].content = strdup(content);
+  buffers[first_empty_buf].uri = mstrdup(mp, uri);
+  buffers[first_empty_buf].content = mstrdup(mp, content);
   return buffers[first_empty_buf++];
 }
 
 BUFFER update_buffer(const char *uri, const char *content) {
   for(unsigned int i = 0; i < first_empty_buf; i++) {
     if(strcmp(buffers[i].uri, uri) == 0) {
-      free(buffers[i].content);
-      buffers[i].content = strdup(content);
+      free_mstr(mp, buffers[i].content);
+      buffers[i].content = mstrdup(mp, content);
       return buffers[i];
     }
   }
@@ -39,8 +44,8 @@ BUFFER get_buffer(const char *uri) {
 void close_buffer(const char *uri) {
   for(unsigned int i = 0; i < first_empty_buf; i++) {
     if(strcmp(buffers[i].uri, uri) == 0) {
-      free(buffers[i].uri);
-      free(buffers[i].content);
+      free_mstr(mp, buffers[i].uri);
+      free_mstr(mp, buffers[i].content);
       for(unsigned int j = i; j < first_empty_buf - 1; j++) {
         buffers[j] = buffers[j + 1];
       }

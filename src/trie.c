@@ -51,10 +51,11 @@ ANN void trie_add(char *name, void *value) {
     vector_add(vec, (vtype)value);
 }
 
-ANN Vector trie_get(char *name) {
+ANN Vector trie_get(char *const name) {
+  char *s = name;
   Vector vec = trie;
   char c;
-  while((c = *name++))
+  while((c = *s++))
     CHECK_OO((vec = trie_at(vec, c)));
   return trie_at(vec, c);
 }
@@ -85,8 +86,8 @@ ANN static void _trie_clear(Vector vec) {
   Vector v = (Vector)vector_front(vec);
   if(v) vector_clear(v);
   for(uint32_t i = 1; i < vector_size(vec); i++) {
-    Vector v = (Vector)vector_front(vec);
-    if(v) trie_clean(v);
+    Vector v = (Vector)vector_at(vec, i);
+    if(v) _trie_clear(v);
   }
 }
 

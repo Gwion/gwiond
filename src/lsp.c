@@ -3,6 +3,7 @@
 #include <string.h>
 #include "gwiond.h"
 #include "err_codes.h"
+#include "gwion_util.h"
 #include "lsp.h"
 #define MAX_HEADER_FIELD_LEN 100
 
@@ -101,7 +102,7 @@ void json_rpc(const cJSON *request) {
 
   else if(strcmp(method, "textDocument/signatureHelp") == 0) {
 fprintf(stderr, "received sig help request\n");
-    lsp_signature(id, params_json);
+    //lsp_signature(id, params_json);
   }
   
 }

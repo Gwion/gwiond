@@ -12,7 +12,7 @@
 #include "gwfmt.h"
 #include "lsp.h"
 #include "trie.h"
-
+#include "io.h"
 
 static struct Gwion_ gwion = {};
 
@@ -38,9 +38,9 @@ static cJSON* json_range(cJSON *base, const loc_t loc) {
   return json;
 }
     
-cJSON* symbol_info(const char *symbol_name, const char *text) {
+cJSON* symbol_info(const char *symbol_name, char *const text) {
   //parse(NULL, text);
-  const Vector vec = trie_get(symbol_name);
+  const Vector vec = trie_get((m_str)symbol_name);
   if(!vec) return NULL;
   const Value v = (Value)vector_front(vec);
   if(!v) return NULL;
@@ -52,8 +52,7 @@ cJSON* symbol_location(const char *filename, const char *symbol_name, char *text
   Vector vec = trie_get((m_str)symbol_name);
   if(vec) {
     const Value v = (Value)vector_at(vec, 0);
-    fprintf(stderr, "found %s from trie: %p %lu\n", symbol_name, v, vector_size(vec));
-    if(v)return json_range(NULL, v->from->loc);
+    if(v) return json_range(NULL, v->from->loc);
   } 
   return NULL;
 }
@@ -84,7 +83,7 @@ static void gwiond_error_basic(const char *main, const char *secondary, const ch
   cJSON *diagnostic = cJSON_CreateObject();
   cJSON *range = json_range(diagnostic, loc);
   char msg[256];
-  snprintf(msg, 256, "%s%s", main, secondary ?: "");
+  snprintf(msg, 256, "%s %s", main, secondary ?: "");
   cJSON_AddNumberToObject(diagnostic, "severity", error);
   cJSON_AddStringToObject(diagnostic, "message", msg);
   cJSON_AddItemToArray(_diagnostics, diagnostic);
@@ -97,7 +96,6 @@ static char*gw_args[1] = {
 };
 
 ANN void gwiond_add_value(const Nspc n, const Symbol s, const Value a) {
-  fprintf(stderr, "adding %s\n", a->name);
   _nspc_add_value(n, s, a);
   a->from->loc.first.column--;
   a->from->loc.last.column--;
@@ -130,14 +128,13 @@ void gwiond_parse(cJSON *diagnostics, const char *filename, char *text) {
   _diagnostics = NULL;
 }
 
-//Vector trie_get(char *name);
 void lsp_signature(int id, const cJSON *params_json) {
   DOCUMENT_LOCATION document = lsp_parse_document(params_json);
 
   BUFFER buffer = get_buffer(document.uri);
   char *text = strdup(buffer.content);
   truncate_string(text, document.line, document.character);
-  char *symbol_name  = extract_last_symbol(text);
+  const char *symbol_name  = extract_last_symbol(text);
   char *str = strndup(symbol_name, strlen(symbol_name) - 1); //strchr(symbol_name, '(');
   //if(*str) return;
    // what if no result...
@@ -168,11 +165,9 @@ void lsp_signature(int id, const cJSON *params_json) {
 */
   Vector vec = trie_get(str);
   if(vec) {
-    fprintf(stderr, "got smth!!!!! %li\n", vector_size(vec)); 
   for(m_uint i = 0; i < vector_size(vec); i++) {
     Value v = (Value)vector_at(vec, i);
     if(v) {
-      fprintf(stderr, "got one:::");
         cJSON *obj = cJSON_CreateObject();
   
         const Func f = v->d.func_ref;
@@ -208,7 +203,6 @@ text_add(&ls.text, ",");
 
         }
 text_add(&ls.text, ")");
-        fprintf(stderr, "args!!!!! %p %s\n", args, ls.text.str);
         f->def->d.code = code;
 
 
@@ -222,7 +216,6 @@ text_release(&ls.text);
   cJSON *arguments = cJSON_AddArrayToObject(obj, "parameters");
         for(uint32_t i = 0; i < mp_vector_len(args); i++) {
           Arg *arg = mp_vector_at(args, struct Arg_, i);
-          fprintf(stderr, "got args\n");
         cJSON *obj = cJSON_CreateObject();
         cJSON_AddStringToObject(obj, "label", s_name(arg->var_decl.xid));
           cJSON_AddItemToArray(arguments, obj);
@@ -283,6 +276,7 @@ void lsp_format(int id, const cJSON *params_json) {
 void gwiond_ini(void) {
   CliArg arg = {.arg = {.argc = 1, .argv = gw_args}, .loop = false};
   const m_bool ini = gwion_ini(&gwion, &arg);
+  io_ini(gwion.mp);
   trie_ini(gwion.mp);
   gwerr_set_func(gwiond_error_basic, gwiond_error_secondary);
   gwion_set_default_pos((pos_t) { 0 , 0 });
