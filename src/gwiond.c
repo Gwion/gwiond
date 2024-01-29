@@ -1,6 +1,7 @@
 #include "gwion_util.h"
 #include "gwion_ast.h"
 #include "gwion_env.h"
+#include "termcolor.h"
 #include "vm.h"
 #include "instr.h"
 #include "emit.h"
@@ -27,7 +28,7 @@ static cJSON *json_position(cJSON *base, const char *name,
                             const pos_t pos) {
   cJSON *json  = json_base(base, name);
   cJSON_AddNumberToObject(json, "line", pos.line);
-  cJSON_AddNumberToObject(json, "character", pos.column);
+  cJSON_AddNumberToObject(json, "character", pos.column - 1);
   return json;
 }
 
@@ -83,7 +84,8 @@ static void gwiond_error_basic(const char *main, const char *secondary, const ch
   cJSON *diagnostic = cJSON_CreateObject();
   cJSON *range = json_range(diagnostic, loc);
   char msg[256];
-  snprintf(msg, 256, "%s %s", main, secondary ?: "");
+  //tcol_snprintf(msg, 256, "%s %s", main, secondary ?: "");
+  tcol_snprintf(msg, 256, main);
   cJSON_AddNumberToObject(diagnostic, "severity", error);
   cJSON_AddStringToObject(diagnostic, "message", msg);
   cJSON_AddItemToArray(_diagnostics, diagnostic);
@@ -91,8 +93,8 @@ static void gwiond_error_basic(const char *main, const char *secondary, const ch
 
 static void gwiond_error_secondary(const char *main, const char *filename,
                          const loc_t loc) {}
-static char*gw_args[1] = {
-  "-gcheck"
+static char*gw_args[2] = {
+  "-gcheck", "--color=never"
 };
 
 ANN void gwiond_add_value(const Nspc n, const Symbol s, const Value a) {
@@ -193,9 +195,9 @@ text_add(&ls.text, "(");
         for(uint32_t i = 0; i < mp_vector_len(args); i++) {
           Arg *arg = mp_vector_at(args, struct Arg_, i);
 // TODO: full type path
-          text_add(&ls.text, s_name(arg->td->xid));
+          text_add(&ls.text, s_name(arg->var.td->tag.sym));
 text_add(&ls.text, " ");
-text_add(&ls.text, s_name(arg->var_decl.xid));
+text_add(&ls.text, s_name(arg->var.vd.tag.sym));
 if(i < mp_vector_len(args) - 1)
 text_add(&ls.text, ",");
 
@@ -217,7 +219,7 @@ text_release(&ls.text);
         for(uint32_t i = 0; i < mp_vector_len(args); i++) {
           Arg *arg = mp_vector_at(args, struct Arg_, i);
         cJSON *obj = cJSON_CreateObject();
-        cJSON_AddStringToObject(obj, "label", s_name(arg->var_decl.xid));
+        cJSON_AddStringToObject(obj, "label", s_name(arg->var.vd.tag.sym));
           cJSON_AddItemToArray(arguments, obj);
         }
         }
@@ -255,7 +257,8 @@ void lsp_format(int id, const cJSON *params_json) {
   BUFFER buffer = get_buffer(document.uri);
   FILE *f = fmemopen(buffer.content, strlen(buffer.content), "r");
   struct AstGetter_ arg = { (const m_str)document.uri, f, gwion.st, .ppa = &ppa};
-  pos_t pos = { 0, 0 };
+//  pos_t pos = { 0, 0 };
+  pos_t pos = { 1, 1 };
   Ast ast = parse_pos(&arg, pos); // is that needed?
   if (!ast) { return;} // would better send an error
   gwfmt_ast(&l, ast);
@@ -274,12 +277,13 @@ void lsp_format(int id, const cJSON *params_json) {
 }
 
 void gwiond_ini(void) {
-  CliArg arg = {.arg = {.argc = 1, .argv = gw_args}, .loop = false};
+  CliArg arg = {.arg = {.argc = 1, .argv = gw_args}, .loop = false };
   const m_bool ini = gwion_ini(&gwion, &arg);
   io_ini(gwion.mp);
   trie_ini(gwion.mp);
   gwerr_set_func(gwiond_error_basic, gwiond_error_secondary);
-  gwion_set_default_pos((pos_t) { 0 , 0 });
+  gwion_set_default_pos((pos_t) { 0, 1 });
+//  gwion_set_default_pos((pos_t) { 0 , -1 });
   nspc_add_value_set_func(gwiond_add_value, gwiond_add_value_front);
   arg_release(&arg);
 }

@@ -32,6 +32,9 @@ clean:
 options:
 	$(call _options)	
 
+install:
+	install -m 777 gwiond /usr/bin
+
 .c.o:
 	$(info compile $(<:.c=))
 	@${CC} $(DEPFLAGS) ${CFLAGS} -c $< -o $(<:.c=.o)

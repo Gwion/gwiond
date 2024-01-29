@@ -101,8 +101,8 @@ void json_rpc(const cJSON *request) {
     lsp_format(id, params_json);
 
   else if(strcmp(method, "textDocument/signatureHelp") == 0) {
-fprintf(stderr, "received sig help request\n");
-    //lsp_signature(id, params_json);
+//fprintf(stderr, "received sig help request\n");
+    lsp_signature(id, params_json);
   }
   
 }
@@ -170,7 +170,6 @@ void lsp_send_notification(const char *method, cJSON *params) {
 // **************
 
 void lsp_initialize(int id) {
-fprintf(stderr, "hahahahahah");
   cJSON *result = cJSON_CreateObject();
   cJSON *capabilities = cJSON_AddObjectToObject(result, "capabilities");
   cJSON_AddNumberToObject(capabilities, "textDocumentSync", 1);
