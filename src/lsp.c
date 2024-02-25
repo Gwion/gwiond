@@ -51,15 +51,14 @@ cJSON* lsp_parse_content(unsigned long content_length) {
     exit(EXIT_IO_ERROR);
   }
   buffer[content_length] = '\0';
-
   cJSON *request = cJSON_Parse(buffer);
-
   free(buffer);
   if(!request) exit(EXIT_PARSE_ERROR);
   return request;
 }
 
-void lsp_signature(int id, const cJSON *params_json);
+void lsp_signatureHelp(int id, const cJSON *params_json);
+void lsp_foldingRange(int id, const cJSON *params_json);
 void json_rpc(const cJSON *request) {
   const char *method;
   int id = -1;
@@ -99,12 +98,10 @@ void json_rpc(const cJSON *request) {
     lsp_completion(id, params_json);
   else if(strcmp(method, "textDocument/formatting") == 0)
     lsp_format(id, params_json);
-
-  else if(strcmp(method, "textDocument/signatureHelp") == 0) {
-//fprintf(stderr, "received sig help request\n");
-    lsp_signature(id, params_json);
-  }
-  
+  else if(strcmp(method, "textDocument/signatureHelp") == 0)
+    lsp_signatureHelp(id, params_json);
+  else if(strcmp(method, "textDocument/foldingRange") == 0)
+    lsp_foldingRange(id, params_json);
 }
 
 // *********************
@@ -115,7 +112,9 @@ DOCUMENT_LOCATION lsp_parse_document(const cJSON *params_json) {
   DOCUMENT_LOCATION document;
 
   const cJSON *text_document_json = cJSON_GetObjectItem(params_json, "textDocument");
+//  document.uri = get_string(text_document_json, "uri");
   document.uri = get_string(text_document_json, "uri");
+//  document.uri += 7;
   if(!document.uri) exit(EXIT_CONTENT_INCOMPLETE);
 
   const cJSON *position_json = cJSON_GetObjectItem(params_json, "position");
@@ -131,6 +130,8 @@ DOCUMENT_LOCATION lsp_parse_document(const cJSON *params_json) {
   }
   document.character = character_json->valueint;
 
+//BUFFER buffer = get_buffer(document.uri);
+//gwiond_parse(NULL, document.uri, buffer.content);
   return document;
 }
 
@@ -148,6 +149,7 @@ void lsp_send_response(int id, cJSON *result) {
   fflush(stdout);
   free(output);
   cJSON_Delete(response);
+  fflush(stdout);
 }
 
 void lsp_send_notification(const char *method, cJSON *params) {
@@ -163,6 +165,7 @@ void lsp_send_notification(const char *method, cJSON *params) {
   fflush(stdout);
   free(output);
   cJSON_Delete(response);
+  fflush(stdout);
 }
 
 // **************
@@ -179,12 +182,16 @@ void lsp_initialize(int id) {
   cJSON_AddBoolToObject(capabilities, "documentFormattingProvider", 1);
   cJSON *completion = cJSON_AddObjectToObject(capabilities, "completionProvider");
   cJSON_AddBoolToObject(completion, "resolveProvider", 0);
-  
+
+
+  cJSON_AddBoolToObject(capabilities, "foldingRangeProvider", 1);
+
     cJSON *signature = cJSON_AddObjectToObject(capabilities, "signatureHelpProvider");
     cJSON *triggerCharacters = cJSON_AddArrayToObject(signature, "triggerCharacter");
     cJSON_AddItemToArray(triggerCharacters, cJSON_CreateString("("));
-    cJSON_AddItemToArray(triggerCharacters, cJSON_CreateString(","));
-  
+    cJSON *retriggerCharacters = cJSON_AddArrayToObject(signature, "retriggerCharacter");
+    cJSON_AddItemToArray(retriggerCharacters, cJSON_CreateString(","));
+
   lsp_send_response(id, result);
 }
 
@@ -204,7 +211,8 @@ void lsp_sync_open(const cJSON *params_json) {
   if(!uri || !text) exit(EXIT_CONTENT_INCOMPLETE);
 
   BUFFER buffer = open_buffer(uri, text);
-  lsp_gwfmt(uri, buffer);
+//gwiond_parse(NULL, uri + 7, text);
+  lsp_gwfmt(uri + 7, buffer);
 }
 
 void lsp_sync_change(const cJSON *params_json) {
@@ -217,7 +225,7 @@ void lsp_sync_change(const cJSON *params_json) {
   if(!uri || !text) exit(EXIT_CONTENT_INCOMPLETE);
 
   BUFFER buffer = update_buffer(uri, text);
-  lsp_gwfmt(uri, buffer);
+  lsp_gwfmt(uri + 7, buffer);
 }
 
 void lsp_sync_close(const cJSON *params_json) {
@@ -251,16 +259,22 @@ void lsp_hover(int id, const cJSON *params_json) {
   BUFFER buffer = get_buffer(document.uri);
   char *text = strdup(buffer.content);
   truncate_string(text, document.line, document.character);
+
   const char *symbol_name  = extract_last_symbol(text);
+  cJSON *result = cJSON_CreateObject();
+  cJSON *array = cJSON_AddArrayToObject(result, "contents");
   cJSON *contents = symbol_info(symbol_name, text);
   free(text);
 
-  if(!contents) {
-    lsp_send_response(id, NULL);
-    return;
+//    lsp_send_response(id, NULL);
+//    return;
+//  }
+//  cJSON *result = cJSON_CreateObject();
+  if(contents) {
+//    cJSON *str = cJSON_CreateString(contents);
+    cJSON_AddItemToArray(array, contents);
   }
-  cJSON *result = cJSON_CreateObject();
-  cJSON_AddItemToObject(result, "contents", contents);
+//  cJSON_AddItemToObject(result, "contents", contents);
   lsp_send_response(id, result);
 }
 

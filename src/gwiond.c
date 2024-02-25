@@ -10,10 +10,12 @@
 #include "pass.h"
 #include "gwiond_defs.h"
 #include "gwiond.h"
+#include "gwiond_pass.h"
 #include "gwfmt.h"
 #include "lsp.h"
 #include "trie.h"
 #include "io.h"
+#include <cjson/cJSON.h>
 
 static struct Gwion_ gwion = {};
 
@@ -38,23 +40,43 @@ static cJSON* json_range(cJSON *base, const loc_t loc) {
   json_position(json, "end", loc.last);
   return json;
 }
-    
+
 cJSON* symbol_info(const char *symbol_name, char *const text) {
-  //parse(NULL, text);
   const Vector vec = trie_get((m_str)symbol_name);
-  if(!vec) return NULL;
-  const Value v = (Value)vector_front(vec);
-  if(!v) return NULL;
-  return cJSON_CreateString(v->type->name);
+//  if(!vec) return NULL;
+  const Value v = vec ? (Value)vector_front(vec) : nspc_lookup_value1(gwion.env->curr, insert_symbol(gwion.st, symbol_name));
+  if(!v) {
+
+
+    return NULL;
+  }
+  char *str = NULL;
+//  char *name = isa(v->type, gwion.type[et_function]) ? s_name(v->type->info->func->def->base->tag.sym) : v->name;
+  char *name = v->name;
+  asprintf(&str,
+"```markdown\n"
+"## (%s) `%s`\n"
+"```md\n-------------\n"
+"```markdown\n### of type: `%s`\n"
+"```md\n------------\n"
+"```markdown\n### in file: *%s*\n",
+isa(v->type, gwion.type[et_class]) ? "class" :
+isa(v->type, gwion.type[et_function]) ? "function" :
+"variable",
+name, v->type->name, v->from->filename);
+  cJSON *result = cJSON_CreateString(str);
+  free(str);
+  return result;
 }
 
 cJSON* symbol_location(const char *filename, const char *symbol_name, char *text) {
-  gwiond_parse(NULL, filename, text);
+//  gwiond_parse(NULL, filename, text);
+  gwiond_parse(NULL, "etse", text);
   Vector vec = trie_get((m_str)symbol_name);
   if(vec) {
     const Value v = (Value)vector_at(vec, 0);
     if(v) return json_range(NULL, v->from->loc);
-  } 
+  }
   return NULL;
 }
 
@@ -80,24 +102,37 @@ cJSON* symbol_completion(const char *symbol_name_part, const char *text) {
 static cJSON *_diagnostics = NULL;
 static void gwiond_error_basic(const char *main, const char *secondary, const char *fix,
   const char *filename, const loc_t loc,  const uint errno,  const enum libprettyerr_errtype error) {
-  if(!error || !_diagnostics) return;
+  if(/*!error ||*/ !_diagnostics) return;
   cJSON *diagnostic = cJSON_CreateObject();
   cJSON *range = json_range(diagnostic, loc);
   char msg[256];
   //tcol_snprintf(msg, 256, "%s %s", main, secondary ?: "");
   tcol_snprintf(msg, 256, main);
-  cJSON_AddNumberToObject(diagnostic, "severity", error);
+  cJSON_AddNumberToObject(diagnostic, "severity", ERROR);
   cJSON_AddStringToObject(diagnostic, "message", msg);
   cJSON_AddItemToArray(_diagnostics, diagnostic);
 }
 
 static void gwiond_error_secondary(const char *main, const char *filename,
-                         const loc_t loc) {}
+                         const loc_t loc) {
+  if(!_diagnostics) return;
+  cJSON *diagnostic = cJSON_CreateObject();
+  cJSON *range = json_range(diagnostic, loc);
+  char msg[256];
+  //tcol_snprintf(msg, 256, "%s %s", main, secondary ?: "");
+  tcol_snprintf(msg, 256, main);
+  cJSON_AddNumberToObject(diagnostic, "severity", WARNING);
+  cJSON_AddStringToObject(diagnostic, "message", msg);
+  cJSON_AddItemToArray(_diagnostics, diagnostic);
+
+}
+
 static char*gw_args[2] = {
   "-gcheck", "--color=never"
 };
 
 ANN void gwiond_add_value(const Nspc n, const Symbol s, const Value a) {
+if(!s)return;
   _nspc_add_value(n, s, a);
   a->from->loc.first.column--;
   a->from->loc.last.column--;
@@ -125,12 +160,15 @@ ANN void gwiond_add_value_front(const Nspc n, const Symbol s, const Value a) {
 
 void gwiond_parse(cJSON *diagnostics, const char *filename, char *text) {
   _diagnostics = diagnostics;
+  gw_err("gimme some loggin");
   trie_clear();
   compile_string(&gwion, (char*)filename, text);
+  gw_err("gimme more");
   _diagnostics = NULL;
 }
 
-void lsp_signature(int id, const cJSON *params_json) {
+void lsp_signatureHelp(int id, const cJSON *params_json) {
+exit(12);
   DOCUMENT_LOCATION document = lsp_parse_document(params_json);
 
   BUFFER buffer = get_buffer(document.uri);
@@ -145,6 +183,17 @@ void lsp_signature(int id, const cJSON *params_json) {
 
   cJSON *result = cJSON_CreateObject();
   cJSON *signatures = cJSON_AddArrayToObject(result, "signatures");
+
+
+// this is hack
+  cJSON *fake = cJSON_CreateObject();
+        cJSON_AddStringToObject(fake, "label", "lololo");
+cJSON_AddItemToArray(signatures, fake);
+  lsp_send_response(id, result);
+return;
+
+
+
   /*
   for(int i = 0; i <= 12 ; i++) {
     const Value v = get_value(i,  symbol_name);
@@ -171,9 +220,7 @@ void lsp_signature(int id, const cJSON *params_json) {
     Value v = (Value)vector_at(vec, i);
     if(v) {
         cJSON *obj = cJSON_CreateObject();
-  
         const Func f = v->d.func_ref;
-        
   struct GwfmtState ls = {
     .color = false, .pretty=false, .show_line = false, .header = false,
         //.nindent = tabsize,
@@ -236,6 +283,44 @@ text_release(&ls.text);
 
   lsp_send_response(id, result);
 }
+//#include "gwiond_pass.h"
+
+void lsp_foldingRange(int id, const cJSON *params_json) {
+  DOCUMENT_LOCATION document = lsp_parse_document(params_json);
+  BUFFER buffer = get_buffer(document.uri);
+  FILE *f = fmemopen(buffer.content, strlen(buffer.content), "r");
+  struct PPArg_ ppa = {.fmt = 1};
+  pparg_ini(gwion.mp, &ppa);
+  struct AstGetter_ arg = { (const m_str)document.uri, f, gwion.st, .ppa = &ppa};
+  Ast ast = parse(&arg); // is that needed?
+  if (!ast) { return;} // would better send an error
+  GwiondInfo gi;
+  gwiondinfo_ini(gwion.mp, &gi);
+  gwiond_ast(&gi, ast);
+  fclose(f);
+
+// we doing regions only for now
+	// next we'll need to add kinds to the vector
+// free the ast?
+	// or store it in buffer? 
+// send the array
+  cJSON *json = cJSON_CreateArray();
+  for(uint32_t i = 0; i < gi.foldranges->len; i++) {
+    FoldRange fr = *mp_vector_at(gi.foldranges, FoldRange, i);
+    cJSON *foldrange = cJSON_CreateObject();
+    cJSON_AddNumberToObject(foldrange, "startLine", fr.loc.first.line);
+    cJSON_AddNumberToObject(foldrange, "startCharacter", fr.loc.first.column);
+    cJSON_AddNumberToObject(foldrange, "endLine", fr.loc.last.line);
+    cJSON_AddNumberToObject(foldrange, "endCharacter", fr.loc.last.column);
+    cJSON_AddStringToObject(foldrange, "kind", "region");
+    cJSON_AddItemToArray(json, foldrange);
+  }
+
+  lsp_send_response(id, json);
+
+	
+  // gwiondinfo_end();
+}
 
 void lsp_format(int id, const cJSON *params_json) {
   struct PPArg_ ppa = {.fmt = 1};
@@ -257,17 +342,15 @@ void lsp_format(int id, const cJSON *params_json) {
   BUFFER buffer = get_buffer(document.uri);
   FILE *f = fmemopen(buffer.content, strlen(buffer.content), "r");
   struct AstGetter_ arg = { (const m_str)document.uri, f, gwion.st, .ppa = &ppa};
-//  pos_t pos = { 0, 0 };
-  pos_t pos = { 1, 1 };
-  Ast ast = parse_pos(&arg, pos); // is that needed?
+  Ast ast = parse(&arg); // is that needed?
   if (!ast) { return;} // would better send an error
   gwfmt_ast(&l, ast);
   fclose(f);
   cJSON *json = cJSON_CreateArray();
   cJSON *textedit = cJSON_CreateObject();
   const loc_t loc = {
-    pos,
-    { l.line, l.column }
+    .first = (pos_t){ .line = 0, .column = 1},
+    .last = { l.line, l.column }
   };
   json_range(textedit, loc);
   cJSON_AddStringToObject(textedit, "newText", ls.text.str);
@@ -278,12 +361,11 @@ void lsp_format(int id, const cJSON *params_json) {
 
 void gwiond_ini(void) {
   CliArg arg = {.arg = {.argc = 1, .argv = gw_args}, .loop = false };
-  const m_bool ini = gwion_ini(&gwion, &arg);
+  const bool ini = gwion_ini(&gwion, &arg);
   io_ini(gwion.mp);
   trie_ini(gwion.mp);
   gwerr_set_func(gwiond_error_basic, gwiond_error_secondary);
-  gwion_set_default_pos((pos_t) { 0, 1 });
-//  gwion_set_default_pos((pos_t) { 0 , -1 });
+  gwion_parser_set_default_pos((pos_t) { 0, 1 });
   nspc_add_value_set_func(gwiond_add_value, gwiond_add_value_front);
   arg_release(&arg);
 }

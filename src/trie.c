@@ -56,7 +56,7 @@ ANN Vector trie_get(char *const name) {
   Vector vec = trie;
   char c;
   while((c = *s++))
-    CHECK_OO((vec = trie_at(vec, c)));
+    CHECK_O((vec = trie_at(vec, c)));
   return trie_at(vec, c);
 }
 
@@ -76,7 +76,7 @@ ANN Vector trie_starts_with(char *partial) {
   Vector vec = trie;
   char c;
   while((c = *partial++))
-    CHECK_OO((vec = trie_at(vec, c)));
+    CHECK_O((vec = trie_at(vec, c)));
   Vector ret = new_vector(mp);
   get_values(ret, vec);
   return ret;
