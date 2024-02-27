@@ -178,7 +178,7 @@ void lsp_send_notification(const char *method, cJSON *params) {
 extern struct Gwion_ gwion;
 static char* read_file(const char *filename) {
   FILE *file = fopen(filename, "r");
-  if(!file) return false;
+  if(!file) return NULL;
   fseek(file, 0, SEEK_END); 
   long size = ftell(file);
   fseek(file, 0, SEEK_SET); 
@@ -189,20 +189,21 @@ static char* read_file(const char *filename) {
   return buffer;
 }
 
-static cJSON *workspaces; // TODO; clean at exit
-void lsp_initialize(int id, const cJSON *params) {
+static cJSON *workspaces = NULL; // TODO; clean at exit
+void lsp_initialize(int id, const cJSON *params) { 
   if(!workspaces) workspaces = cJSON_CreateArray();
   cJSON *workspaceFolders = cJSON_GetObjectItem(params, "workspaceFolders");
   if(workspaceFolders) 
   for(int i = 0; i < cJSON_GetArraySize(workspaceFolders); i++) {
     cJSON *json = cJSON_GetArrayItem(workspaceFolders, i);
-    cJSON *uri = cJSON_GetObjectItem(json, "uri");
+    const char* uri = get_string(json, "uri"); 
     char *config = NULL;
     char *buffer = read_file("gwiond.json");
+    if(!buffer) continue;
     cJSON *result = cJSON_Parse(buffer); 
     free_mstr(gwion.mp, buffer);
     if (result) { 
-      cJSON_AddStringToObject(result, "uri", cJSON_GetStringValue(uri));
+      cJSON_AddStringToObject(result, "uri", uri);
       cJSON_AddItemToArray(workspaces, result);
     }
   }
@@ -283,12 +284,11 @@ static bool get_parse_uri_files(cJSON *files, char *const uri) {
 static char *const get_parse_uri_workspace(cJSON *workspaces, char *const uri) {
   for(int i = 0; i < cJSON_GetArraySize(workspaces); i++) {
     cJSON *workspace = cJSON_GetArrayItem(workspaces, i);
-    cJSON *base      = cJSON_GetObjectItem(workspace, "base");
-    char *const root = cJSON_GetStringValue(base);
+    char *const root = get_string(workspace, "base");
     if(!strcmp(uri , root)) return uri;
     cJSON *files    = cJSON_GetObjectItem(workspace, "files");
     if(get_parse_uri_files(files, uri))
-      return root;
+      return uri;
   }
   return uri;
 }
