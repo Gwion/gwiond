@@ -1,13 +1,16 @@
+#include <cjson/cJSON.h>
+#include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gwiond.h"
 #include "err_codes.h"
 #include "gwion_util.h"
 #include "lsp.h"
+#include "gwiond.h"
+#include "mp_vector.h"
 #define MAX_HEADER_FIELD_LEN 100
 
-static inline const char *get_string(const cJSON* json, const char *key) {
+static inline char *const get_string(const cJSON* json, const char *key) {
   const cJSON *val = cJSON_GetObjectItem(json, key);
   return cJSON_GetStringValue(val);
 }
@@ -77,7 +80,7 @@ void json_rpc(const cJSON *request) {
   const cJSON *params_json = cJSON_GetObjectItem(request, "params");
 
   if(strcmp(method, "initialize") == 0)
-    lsp_initialize(id);
+    lsp_initialize(id, params_json);
   else if(strcmp(method, "shutdown") == 0)
     lsp_shutdown(id);
   else if(strcmp(method, "exit") == 0)
@@ -129,9 +132,6 @@ DOCUMENT_LOCATION lsp_parse_document(const cJSON *params_json) {
     exit(EXIT_CONTENT_INCOMPLETE);
   }
   document.character = character_json->valueint;
-
-//BUFFER buffer = get_buffer(document.uri);
-//gwiond_parse(NULL, document.uri, buffer.content);
   return document;
 }
 
@@ -170,9 +170,43 @@ void lsp_send_notification(const char *method, cJSON *params) {
 
 // **************
 // RPC functions:
-// **************
+#include "gwion_ast.h"
+#include "gwion_env.h"
+#include "vm.h"
+#include "gwion.h"
 
-void lsp_initialize(int id) {
+extern struct Gwion_ gwion;
+static char* read_file(const char *filename) {
+  FILE *file = fopen(filename, "r");
+  if(!file) return false;
+  fseek(file, 0, SEEK_END); 
+  long size = ftell(file);
+  fseek(file, 0, SEEK_SET); 
+  char *buffer = mp_malloc2(gwion.mp, size + 1);
+  buffer[size] = '\0';
+  int len = fread(buffer, 1, size, file); 
+  fclose(file); 
+  return buffer;
+}
+
+static cJSON *workspaces; // TODO; clean at exit
+void lsp_initialize(int id, const cJSON *params) {
+  if(!workspaces) workspaces = cJSON_CreateArray();
+  cJSON *workspaceFolders = cJSON_GetObjectItem(params, "workspaceFolders");
+  if(workspaceFolders) 
+  for(int i = 0; i < cJSON_GetArraySize(workspaceFolders); i++) {
+    cJSON *json = cJSON_GetArrayItem(workspaceFolders, i);
+    cJSON *uri = cJSON_GetObjectItem(json, "uri");
+    char *config = NULL;
+    char *buffer = read_file("gwiond.json");
+    cJSON *result = cJSON_Parse(buffer); 
+    free_mstr(gwion.mp, buffer);
+    if (result) { 
+      cJSON_AddStringToObject(result, "uri", cJSON_GetStringValue(uri));
+      cJSON_AddItemToArray(workspaces, result);
+    }
+  }
+
   cJSON *result = cJSON_CreateObject();
   cJSON *capabilities = cJSON_AddObjectToObject(result, "capabilities");
   cJSON_AddNumberToObject(capabilities, "textDocumentSync", 1);
@@ -205,19 +239,18 @@ void lsp_exit(void) {
 
 void lsp_sync_open(const cJSON *params_json) {
   const cJSON *text_document_json = cJSON_GetObjectItem(params_json, "textDocument");
-  const char *uri = get_string(text_document_json, "uri");
+  char *const uri = get_string(text_document_json, "uri");
   const char *text = get_string(text_document_json, "text");
 
   if(!uri || !text) exit(EXIT_CONTENT_INCOMPLETE);
 
   BUFFER buffer = open_buffer(uri, text);
-//gwiond_parse(NULL, uri + 7, text);
   lsp_gwfmt(uri + 7, buffer);
 }
 
 void lsp_sync_change(const cJSON *params_json) {
   const cJSON *text_document_json = cJSON_GetObjectItem(params_json, "textDocument");
-  const char *uri = get_string(text_document_json, "uri");
+  char *const uri = get_string(text_document_json, "uri");
   const cJSON *content_changes_json = cJSON_GetObjectItem(params_json, "contentChanges");
   const cJSON *content_change_json = cJSON_GetArrayItem(content_changes_json, 0);
   const char *text = get_string(content_change_json, "text");
@@ -238,12 +271,58 @@ void lsp_sync_close(const cJSON *params_json) {
   lsp_gwfmt_clear(uri);
 }
 
-void lsp_gwfmt(const char *uri, BUFFER buffer) {
-  cJSON *params = cJSON_CreateObject();
-  cJSON_AddStringToObject(params, "uri", buffer.uri);
-  cJSON *diagnostics = cJSON_AddArrayToObject(params, "diagnostics");
-  gwiond_parse(diagnostics, uri, buffer.content);
-  lsp_send_notification("textDocument/publishDiagnostics", params);
+static bool get_parse_uri_files(cJSON *files, char *const uri) {
+  for(int i = 0; i < cJSON_GetArraySize(files); i++) {
+    cJSON *target = cJSON_GetArrayItem(files, i);
+    const char *file = cJSON_GetStringValue(target);
+    if(!strcmp(realpath(file, NULL), uri)) return true;
+  }
+  return false;
+}
+
+static char *const get_parse_uri_workspace(cJSON *workspaces, char *const uri) {
+  for(int i = 0; i < cJSON_GetArraySize(workspaces); i++) {
+    cJSON *workspace = cJSON_GetArrayItem(workspaces, i);
+    cJSON *base      = cJSON_GetObjectItem(workspace, "base");
+    char *const root = cJSON_GetStringValue(base);
+    if(!strcmp(uri , root)) return uri;
+    cJSON *files    = cJSON_GetObjectItem(workspace, "files");
+    if(get_parse_uri_files(files, uri))
+      return root;
+  }
+  return uri;
+}
+
+static char *const get_parse_uri(char *const uri) {
+  for(int i = 0; i < cJSON_GetArraySize(workspaces); i++) {
+    cJSON *workspace = cJSON_GetArrayItem(workspaces, i);
+    cJSON *roots      = cJSON_GetObjectItem(workspace, "roots");
+    if(!roots) exit(32);
+    char *root = get_parse_uri_workspace(roots, uri);
+    if(root) {
+      if(!strcmp(root, uri)) return uri;
+      return realpath(root, NULL);
+    }
+  }
+  return uri;
+}
+
+void lsp_gwfmt(char *const request, BUFFER buffer) {
+  MP_Vector *infos = new_mp_vector(gwion.mp, DiagnosticInfo, 0);
+  char *const uri = get_parse_uri(request);
+  // not a mistake, we are comparing the pointers
+  if(uri != request)
+    free(uri); // we could have a threadlocal string[PATH_MAX]
+  if(strcmp(uri, request)) {
+    char *text = read_file(uri);
+    buffer = open_buffer(uri, text);
+  }
+  gwiond_parse(&infos, uri, buffer.content);
+  for(uint32_t i = 0; i < infos->len; i++) {
+    DiagnosticInfo *info = mp_vector_at(infos, DiagnosticInfo, i);
+    lsp_send_notification("textDocument/publishDiagnostics", info->cjson);
+  }
+  free_mp_vector(gwion.mp, DiagnosticInfo, infos);
 }
 
 void lsp_gwfmt_clear(const char *uri) {
@@ -260,21 +339,14 @@ void lsp_hover(int id, const cJSON *params_json) {
   char *text = strdup(buffer.content);
   truncate_string(text, document.line, document.character);
 
-  const char *symbol_name  = extract_last_symbol(text);
+  char *const symbol_name  = extract_last_symbol(text);
   cJSON *result = cJSON_CreateObject();
   cJSON *array = cJSON_AddArrayToObject(result, "contents");
   cJSON *contents = symbol_info(symbol_name, text);
   free(text);
 
-//    lsp_send_response(id, NULL);
-//    return;
-//  }
-//  cJSON *result = cJSON_CreateObject();
-  if(contents) {
-//    cJSON *str = cJSON_CreateString(contents);
+  if(contents)
     cJSON_AddItemToArray(array, contents);
-  }
-//  cJSON_AddItemToObject(result, "contents", contents);
   lsp_send_response(id, result);
 }
 

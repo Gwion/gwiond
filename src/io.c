@@ -73,7 +73,7 @@ void truncate_string(char *text, int line, int character) {
   text[position] = '\0';
 }
 
-const char* extract_last_symbol(char *text) {
+char *const extract_last_symbol(char *text) {
   for(unsigned int position = strlen(text) - 1; position > 0; position--) {
     if(!isalnum(text[position - 1])) {
       return text + position;

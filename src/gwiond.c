@@ -17,7 +17,7 @@
 #include "io.h"
 #include <cjson/cJSON.h>
 
-static struct Gwion_ gwion = {};
+struct Gwion_ gwion = {};
 
 
 static cJSON *json_base(cJSON *base, const char *name) {
@@ -41,9 +41,8 @@ static cJSON* json_range(cJSON *base, const loc_t loc) {
   return json;
 }
 
-cJSON* symbol_info(const char *symbol_name, char *const text) {
+cJSON* symbol_info(char *const symbol_name, char *const text) {
   const Vector vec = trie_get((m_str)symbol_name);
-//  if(!vec) return NULL;
   const Value v = vec ? (Value)vector_front(vec) : nspc_lookup_value1(gwion.env->curr, insert_symbol(gwion.st, symbol_name));
   if(!v) {
 
@@ -53,7 +52,7 @@ cJSON* symbol_info(const char *symbol_name, char *const text) {
   char *str = NULL;
 //  char *name = isa(v->type, gwion.type[et_function]) ? s_name(v->type->info->func->def->base->tag.sym) : v->name;
   char *name = v->name;
-  asprintf(&str,
+  gw_asprintf(gwion.mp, &str,
 "```markdown\n"
 "## (%s) `%s`\n"
 "```md\n-------------\n"
@@ -65,13 +64,12 @@ isa(v->type, gwion.type[et_function]) ? "function" :
 "variable",
 name, v->type->name, v->from->filename);
   cJSON *result = cJSON_CreateString(str);
-  free(str);
+  free_mstr(gwion.mp, str);
   return result;
 }
 
 cJSON* symbol_location(const char *filename, const char *symbol_name, char *text) {
-//  gwiond_parse(NULL, filename, text);
-  gwiond_parse(NULL, "etse", text);
+  //gwiond_parse(NULL, filename, text);
   Vector vec = trie_get((m_str)symbol_name);
   if(vec) {
     const Value v = (Value)vector_at(vec, 0);
@@ -99,7 +97,23 @@ cJSON* symbol_completion(const char *symbol_name_part, const char *text) {
   return results;
 }
 
-static cJSON *_diagnostics = NULL;
+static MP_Vector **_diagnostics = NULL;
+
+static cJSON *get_diagnostics(const char *filename) {
+  for(uint32_t i = 0; i < (*_diagnostics)->len; i++) {
+    DiagnosticInfo *info = mp_vector_at((*_diagnostics), DiagnosticInfo, i);
+    if(!strcmp(filename, info->filename))
+      return cJSON_GetObjectItem(info->cjson, "diagnostics");
+  }
+  DiagnosticInfo info = { .filename = filename, .cjson = cJSON_CreateObject() };
+  mp_vector_add(gwion.mp, _diagnostics, DiagnosticInfo, info);
+  char *uri = NULL;
+  gw_asprintf(gwion.mp, &uri, "file://%s", filename);
+  cJSON_AddStringToObject(info.cjson, "uri", uri);
+  free_mstr(gwion.mp, uri);
+  return cJSON_AddArrayToObject(info.cjson, "diagnostics");
+}
+
 static void gwiond_error_basic(const char *main, const char *secondary, const char *fix,
   const char *filename, const loc_t loc,  const uint errno,  const enum libprettyerr_errtype error) {
   if(/*!error ||*/ !_diagnostics) return;
@@ -110,7 +124,8 @@ static void gwiond_error_basic(const char *main, const char *secondary, const ch
   tcol_snprintf(msg, 256, main);
   cJSON_AddNumberToObject(diagnostic, "severity", ERROR);
   cJSON_AddStringToObject(diagnostic, "message", msg);
-  cJSON_AddItemToArray(_diagnostics, diagnostic);
+  cJSON *diagnostics = get_diagnostics(filename);
+  cJSON_AddItemToArray(diagnostics, diagnostic);
 }
 
 static void gwiond_error_secondary(const char *main, const char *filename,
@@ -123,7 +138,8 @@ static void gwiond_error_secondary(const char *main, const char *filename,
   tcol_snprintf(msg, 256, main);
   cJSON_AddNumberToObject(diagnostic, "severity", WARNING);
   cJSON_AddStringToObject(diagnostic, "message", msg);
-  cJSON_AddItemToArray(_diagnostics, diagnostic);
+  cJSON *diagnostics = get_diagnostics(filename);
+  cJSON_AddItemToArray(diagnostics, diagnostic);
 
 }
 
@@ -158,17 +174,14 @@ ANN void gwiond_add_value_front(const Nspc n, const Symbol s, const Value a) {
   trie_add(c, a);
 }
 
-void gwiond_parse(cJSON *diagnostics, const char *filename, char *text) {
+void gwiond_parse(MP_Vector **diagnostics, const char *filename, char *text) {
   _diagnostics = diagnostics;
-  gw_err("gimme some loggin");
   trie_clear();
   compile_string(&gwion, (char*)filename, text);
-  gw_err("gimme more");
   _diagnostics = NULL;
 }
 
 void lsp_signatureHelp(int id, const cJSON *params_json) {
-exit(12);
   DOCUMENT_LOCATION document = lsp_parse_document(params_json);
 
   BUFFER buffer = get_buffer(document.uri);
@@ -178,9 +191,6 @@ exit(12);
   char *str = strndup(symbol_name, strlen(symbol_name) - 1); //strchr(symbol_name, '(');
   //if(*str) return;
    // what if no result...
-  //char *name = strndup(symbol_name, str-symbol_name);
-  //gwiond_parse(NULL, "kjhkj", text);
-
   cJSON *result = cJSON_CreateObject();
   cJSON *signatures = cJSON_AddArrayToObject(result, "signatures");
 

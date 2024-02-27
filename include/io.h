@@ -35,7 +35,7 @@ void truncate_string(char *text, int line, int character);
 /*
  * Returns the last symbol in a string.
  */
-const char* extract_last_symbol(char *text);
+char *const extract_last_symbol(char *text);
 
 ANN void io_ini(MemPool mp);
 #endif /* end of include guard: IO_H */

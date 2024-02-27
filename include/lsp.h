@@ -59,7 +59,7 @@ void lsp_send_notification(const char *method, cJSON *params);
  * Parses LSP initialize request, and sends a response accordingly.
  * Response specifies language server's capabilities.
  */
-void lsp_initialize(int id);
+void lsp_initialize(int id, const cJSON *params);
 
 /*
  * Parses LSP shutdown request, and sends a response.
@@ -81,7 +81,7 @@ void lsp_sync_close(const cJSON *params_json);
 /*
  * Runs a gwfmter and returns LSP publish diagnostics notification.
  */
-void lsp_gwfmt(const char *uri, BUFFER buffer);
+void lsp_gwfmt(char *const uri, BUFFER buffer);
 void lsp_format(int id, const cJSON *params_json);
 /*
  * Clears diagnostics for a file with specified `uri`.
@@ -103,4 +103,10 @@ void lsp_goto_definition(int id, const cJSON *params_json);
  */
 void lsp_completion(int id, const cJSON *params_json);
 
+static inline void message(const char* message, int severity) {
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddNumberToObject(json, "type", 1);
+    cJSON_AddStringToObject(json, "message", message);
+    lsp_send_notification("window/showMessage", json);
+}
 #endif /* end of include guard: LSP_H */
