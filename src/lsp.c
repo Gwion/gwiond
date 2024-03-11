@@ -193,21 +193,21 @@ static cJSON *workspaces = NULL; // TODO; clean at exit
 void lsp_initialize(int id, const cJSON *params) { 
   if(!workspaces) workspaces = cJSON_CreateArray();
   cJSON *workspaceFolders = cJSON_GetObjectItem(params, "workspaceFolders");
-  if(workspaceFolders) 
-  for(int i = 0; i < cJSON_GetArraySize(workspaceFolders); i++) {
-    cJSON *json = cJSON_GetArrayItem(workspaceFolders, i);
-    const char* uri = get_string(json, "uri"); 
-    char *config = NULL;
-    char *buffer = read_file("gwiond.json");
-    if(!buffer) continue;
-    cJSON *result = cJSON_Parse(buffer); 
-    free_mstr(gwion.mp, buffer);
-    if (result) { 
-      cJSON_AddStringToObject(result, "uri", uri);
-      cJSON_AddItemToArray(workspaces, result);
+  if(workspaceFolders) {
+    for(int i = 0; i < cJSON_GetArraySize(workspaceFolders); i++) {
+      cJSON *json = cJSON_GetArrayItem(workspaceFolders, i);
+      const char* uri = get_string(json, "uri"); 
+      char *config = NULL;
+      char *buffer = read_file("gwiond.json");
+      if(!buffer) continue;
+      cJSON *result = cJSON_Parse(buffer); 
+      free_mstr(gwion.mp, buffer);
+      if (result) { 
+        cJSON_AddStringToObject(result, "uri", uri);
+        cJSON_AddItemToArray(workspaces, result);
+      }
     }
   }
-
   cJSON *result = cJSON_CreateObject();
   cJSON *capabilities = cJSON_AddObjectToObject(result, "capabilities");
   cJSON_AddNumberToObject(capabilities, "textDocumentSync", 1);
@@ -307,29 +307,45 @@ static char *const get_parse_uri(char *const uri) {
   return uri;
 }
 
+
+static bool find_uri(cJSON *workspaces, char *const request) {
+  for(uint32_t i = 0; i < cJSON_GetArraySize(workspaces); i++) {
+    cJSON *workspace = cJSON_GetArrayItem(workspaces, i);
+    char *const uri = get_string(workspace, "uri");
+    if(!strcmp(request, uri)) return true;
+  }
+  return false;
+}
 void lsp_gwfmt(char *const request, BUFFER buffer) {
   MP_Vector *infos = new_mp_vector(gwion.mp, DiagnosticInfo, 0);
   char *const uri = get_parse_uri(request);
+
+ gwiond_parse(&infos, uri, buffer.content);
+
+  if(!infos->len) lsp_gwfmt_clear(uri - 7);
+  else {
+    for(uint32_t i = 0; i < infos->len; i++) {
+      DiagnosticInfo *info = mp_vector_at(infos, DiagnosticInfo, i);
+//      if(find_uri(workspaces, uri))
+        lsp_send_notification("textDocument/publishDiagnostics", info->cjson);
+    }
+  }
+ 
   // not a mistake, we are comparing the pointers
-  if(uri != request)
-    free(uri); // we could have a threadlocal string[PATH_MAX]
-  if(strcmp(uri, request)) {
-    char *text = read_file(uri);
-    buffer = open_buffer(uri, text);
-  }
-  gwiond_parse(&infos, uri, buffer.content);
-  for(uint32_t i = 0; i < infos->len; i++) {
-    DiagnosticInfo *info = mp_vector_at(infos, DiagnosticInfo, i);
-    lsp_send_notification("textDocument/publishDiagnostics", info->cjson);
-  }
+  if(uri != request) free(uri); // we could have a threadlocal string[PATH_MAX]
+
   free_mp_vector(gwion.mp, DiagnosticInfo, infos);
 }
 
 void lsp_gwfmt_clear(const char *uri) {
+// we should send to all files if *workspace*?
+//  char *const uri = get_parse_uri(request);
   cJSON *params = cJSON_CreateObject();
   cJSON_AddStringToObject(params, "uri", uri);
   cJSON_AddArrayToObject(params, "diagnostics");
   lsp_send_notification("textDocument/publishDiagnostics", params);
+  // not a mistake, we are comparing the pointers
+//  if(uri != request) free(uri); // we could have a threadlocal string[PATH_MAX]
 }
 
 void lsp_hover(int id, const cJSON *params_json) {
