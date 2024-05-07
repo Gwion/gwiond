@@ -15,6 +15,10 @@ ANN static inline void gwiondinfo_ini(MemPool mp, GwiondInfo *gi) {
   gi->mp = mp;
 }
 
+ANN static inline void gwiondinfo_end(MemPool mp, GwiondInfo *gi) {
+  free_mp_vector(mp, FoldRange, gi->foldranges);
+}
+
 ANN static void gwiond_loc(GwiondInfo *a, loc_t b);
 ANN static void gwiond_symbol(GwiondInfo *a, Symbol b);
 ANN static void gwiond_tag(GwiondInfo *a, Tag *tag);

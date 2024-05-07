@@ -1,6 +1,7 @@
 #include "gwion_util.h"
 #include "gwion_ast.h"
 #include "gwion_env.h"
+#include "io.h"
 #include "gwiond.h"
 #include "gwiond_pass.h"
 
@@ -400,9 +401,6 @@ ANN static void gwiond_variable_list(GwiondInfo *a, Variable_List b) {
 
 ANN static void gwiond_stmt_list(GwiondInfo *a, Stmt_List b) {
   if(!b->len) return;
-  Stmt* first = mp_vector_at(b, Stmt, 0);
-  Stmt* last = mp_vector_at(b, Stmt, b->len - 1);
-  loc_t loc = { .first = first->loc.first, .last = last->loc.last };
   for(uint32_t i = 0; i < b->len; i++) {
     Stmt* c = mp_vector_at(b, Stmt, i);
     gwiond_stmt(a, c);

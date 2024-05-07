@@ -1,19 +1,19 @@
 CFLAGS += -I../util/include
 CFLAGS += -I../ast/include
-CFLAGS += -I../ast/libprettyerr/src
 CFLAGS += -I../fmt/include
 CFLAGS += -I../include
 CFLAGS += -Iinclude
-CFLAGS += -fPIC
+#CFLAGS += -Wall
+CFLAGS += -Wextra
 
 LDFLAGS += -lcjson
 LDFLAGS += ../libgwion.a
 LDFLAGS += ../fmt/libgwion_fmt.a
 LDFLAGS += ../ast/libgwion_ast.a
-LDFLAGS += ../ast/libprettyerr/libprettyerr.a
 LDFLAGS += ../util/libgwion_util.a
 LDFLAGS += -lm
 LDFLAGS += -O3
+LDFLAGS += -fwhole-program
 
 SRC := $(wildcard src/*.c)
 OBJ := $(SRC:.c=.o)
@@ -50,3 +50,4 @@ define _options
   $(info CFLAGS  : ${CFLAGS})
   $(info LDFLAGS : ${LDFLAGS})
 endef
+
