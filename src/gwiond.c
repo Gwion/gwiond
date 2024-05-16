@@ -213,6 +213,7 @@ void lsp_signatureHelp(const Gwion gwion, int id, const cJSON *params_json) {
         gwfmt_state_init(&ls);
 //  tcol_override_color_checks(false);
     Gwfmt l = {.mp = gwion->mp, .st = gwion->st, .ls = &ls, .last = cht_nl };
+    l.filename = buffer.uri + 7;
     text_init(&ls.text, gwion->mp);
       
         Stmt_List code = f->def->d.code;
@@ -299,6 +300,7 @@ void lsp_format(const Gwion gwion, int id, const cJSON *params_json) {
 
   Document_LOCATION document = lsp_parse_document(params_json);
   Buffer buffer = get_buffer(document.uri);
+  l.filename = buffer.uri + 7;
   FILE *f = fmemopen(buffer.content, strlen(buffer.content), "r");
   struct AstGetter_ arg = { (const m_str)document.uri, f, gwion->st, .ppa = &ppa};
   Ast ast = parse(&arg); // is that needed?

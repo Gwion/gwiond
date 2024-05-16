@@ -376,6 +376,14 @@ ANN static void gwiond_stmt_spread(GwiondInfo *a, Spread_Def b) {
   gwiond_tag(a, &b->tag);
   gwiond_id_list(a, b->list);
 }
+
+ANN static void gwiond_stmt_using(GwiondInfo *a, Stmt_Using b) {
+  if(b->alias.sym)
+    gwiond_exp(a, b->d.exp);
+  else
+   gwiond_type_decl(a, b->d.td);
+}
+
 DECL_STMT_FUNC(gwiond, void, GwiondInfo*)
 ANN static void gwiond_stmt(GwiondInfo *a, Stmt* b) {
   gwiond_stmt_func[b->stmt_type](a, &b->d);

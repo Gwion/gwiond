@@ -402,8 +402,14 @@ ANN static bool hover_stmt_defer(Hover *a, Stmt_Defer b) {
 }
 
 ANN static bool hover_stmt_spread(Hover *a, Spread_Def b) {
-  return hover_tag(a, &b->tag); // should print info about spread tag
+  hover_tag(a, &b->tag); // should print info about spread tag
   return hover_id_list(a, b->list); // should print info about spread list
+}
+
+ANN static bool hover_stmt_using(Hover *a, Stmt_Using b) {
+  if(b->alias.sym)
+    return hover_exp(a, b->d.exp); // should print info about spread tag
+  return hover_type_decl(a, b->d.td, known_type(a->gwion->env, b->d.td)); // should print info about spread tag
 }
 DECL_STMT_FUNC(hover, bool, Hover*);
 ANN static bool hover_stmt(Hover *a, Stmt* b) {
