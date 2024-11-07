@@ -212,7 +212,7 @@ ANN static void gwiond_exp_if(GwiondInfo *a, Exp_If *b) {
 
 ANN static void gwiond_exp_dot(GwiondInfo *a, Exp_Dot *b) {
   gwiond_exp(a, b->base);
-  gwiond_symbol(a,  b->xid);
+  gwiond_symbol(a,  b->tag.sym);
 }
 
 ANN static void gwiond_exp_lambda(GwiondInfo *a, Exp_Lambda *b) {
@@ -221,6 +221,10 @@ ANN static void gwiond_exp_lambda(GwiondInfo *a, Exp_Lambda *b) {
 
 ANN static void gwiond_exp_td(GwiondInfo *a, Type_Decl *b) {
   gwiond_type_decl(a, b);
+}
+
+ANN static void gwiond_exp_named(GwiondInfo *a, Exp_Named *b) {
+  gwiond_exp(a, b->exp);
 }
 
 DECL_EXP_FUNC(gwiond, void, GwiondInfo*)
@@ -343,7 +347,6 @@ ANN static void fold(GwiondInfo *a, const Stmt_PP b, const char *kind) {
 
 ANN static void gwiond_stmt_pp(GwiondInfo *a, Stmt_PP b) {
   if(b->pp_type == ae_pp_comment) fold(a, b, "comment");
-  if(b->pp_type == ae_pp_import) fold(a, b, "imports");
 }
 
 ANN static void gwiond_stmt_retry(GwiondInfo *a, Stmt_Exp b) {
@@ -378,11 +381,26 @@ ANN static void gwiond_stmt_spread(GwiondInfo *a, Spread_Def b) {
 }
 
 ANN static void gwiond_stmt_using(GwiondInfo *a, Stmt_Using b) {
-  if(b->alias.sym)
+  if(b->tag.sym)
     gwiond_exp(a, b->d.exp);
   else
    gwiond_type_decl(a, b->d.td);
 }
+
+ANN static void gwiond_stmt_import(GwiondInfo *a, Stmt_Import b) {
+  gwiond_tag(a, &b->tag);
+  if(b->selection) {
+    for(uint32_t i = 0; i < b->selection->len; i++) {
+      Stmt_Using using = *mp_vector_at(b->selection, Stmt_Using, i);
+      gwiond_tag(a, &using->tag);
+      if(!using->tag.sym)
+        gwiond_type_decl(a, using->d.td);
+      else
+        gwiond_exp(a, using->d.exp);
+    }
+  }
+}
+
 
 DECL_STMT_FUNC(gwiond, void, GwiondInfo*)
 ANN static void gwiond_stmt(GwiondInfo *a, Stmt* b) {

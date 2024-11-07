@@ -1,10 +1,9 @@
 #include "gwion_util.h"
-#include "gwion_ast.h"
-#include "gwion_env.h"
-#include "termcolor.h"
-#include "vm.h"
-#include "instr.h"
-#include "emit.h"
+#include "gwion_ast.h" // IWYU pragma: export
+#include "gwion_env.h" // IWYU pragma: export
+#include "vm.h"        // IWYU pragma: export
+#include "instr.h"     // IWYU pragma: export
+#include "emit.h"      // IWYU pragma: export
 #include "compile.h"
 #include "gwion.h"
 #include "pass.h"
@@ -93,8 +92,8 @@ static void gwiond_error(const char *main, const char *secondary,
   char msg[256];
   // TODO: concat messages?
   // or make two of them 
-  //tcol_snprintf(msg, 256, "%s.%s", main, secondary ?: "");
-  tcol_snprintf(msg, 256, main);
+  tcol_snprintf(msg, 256, "%s.%s", main, secondary ?: "");
+  //tcol_snprintf(msg, 256, main);
   cJSON *diagnostic = mk_diagnostic(msg, loc, LSP_ERROR);
   if(error_code) {
     cJSON_AddNumberToObject(diagnostic, "code", error_code);

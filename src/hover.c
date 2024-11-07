@@ -261,7 +261,7 @@ ANN static bool hover_exp_dot(Hover *a, Exp_Dot *b) {
   CK(hover_exp(a, b->base));
   // we don't really have a value
   // but we have a name and a type
-  return hover_symbol(a,  b->xid);
+  return hover_symbol(a,  b->tag.sym);
 }
 
 ANN static bool hover_exp_lambda(Hover *a, Exp_Lambda *b) {
@@ -271,6 +271,11 @@ ANN static bool hover_exp_lambda(Hover *a, Exp_Lambda *b) {
 ANN static bool hover_exp_td(Hover *a, Type_Decl *b) {
   return hover_type_decl(a, b, exp_self(b)->type);
 }
+
+ANN static bool hover_exp_named(Hover *a, Exp_Named *b) {
+  return hover_exp(a, b->exp);
+}
+
 
 DECL_EXP_FUNC(hover, bool, Hover*);
 ANN static bool hover_exp(Hover *a, Exp* b) {
@@ -402,15 +407,32 @@ ANN static bool hover_stmt_defer(Hover *a, Stmt_Defer b) {
 }
 
 ANN static bool hover_stmt_spread(Hover *a, Spread_Def b) {
-  hover_tag(a, &b->tag); // should print info about spread tag
+  CK(hover_tag(a, &b->tag)); // should print info about spread tag
   return hover_id_list(a, b->list); // should print info about spread list
 }
 
 ANN static bool hover_stmt_using(Hover *a, Stmt_Using b) {
-  if(b->alias.sym)
-    return hover_exp(a, b->d.exp); // should print info about spread tag
-  return hover_type_decl(a, b->d.td, known_type(a->gwion->env, b->d.td)); // should print info about spread tag
+  CK(hover_type_decl(a, b->d.td, known_type(a->gwion->env, b->d.td)));
+  if(b->tag.sym)
+    return hover_exp(a, b->d.exp);
+  const Type type = known_type(a->gwion->env, b->d.td);
+  if(type)
+    return hover_type_decl(a, b->d.td, type);
+  return false;
 }
+
+ANN static bool hover_stmt_import(Hover *a, Stmt_Import b) {
+  CK(hover_tag(a, &b->tag));
+  if(b->selection) {
+    for(uint32_t i = 0; i < b->selection->len; i++) {
+      Stmt_Using using = *mp_vector_at(b->selection, Stmt_Using, i);
+      CK(hover_stmt_using(a, using));
+    }
+  }
+  return true;
+}
+
+
 DECL_STMT_FUNC(hover, bool, Hover*);
 ANN static bool hover_stmt(Hover *a, Stmt* b) {
   return hover_stmt_func[b->stmt_type](a, &b->d);
@@ -501,7 +523,7 @@ ANN static bool hover_enum_def(Hover *a, Enum_Def b) {
 ANN static bool hover_union_def(Hover *a, Union_Def b) {
   CK(hover_tag2(a, &b->tag, b->type ? b->type->info->value : false));
   CK(hover_variable_list(a, b->l));
-  if(b->tmpl) return hover_tmpl(a, b->tmpl);
+  if(b->tmpl) CK(hover_tmpl(a, b->tmpl));
   return false;
 }
 
