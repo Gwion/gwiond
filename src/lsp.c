@@ -1,4 +1,3 @@
-#include <cjson/cJSON.h>
 #include "err_codes.h"
 #include "gwion_util.h"
 #include "gwion_ast.h"
@@ -6,28 +5,34 @@
 #include "vm.h"
 #include "gwion.h"
 #include "lsp.h"
+#include "util.h"
 #include "gwiond.h"
 #include "gwiond_defs.h"
-#include "mp_vector.h"
-#include "hover.h"
 
 #define MAX_HEADER_FIELD_LEN 100
 
-static inline char *get_string(const cJSON* json, const char *key) {
-  const cJSON *val = cJSON_GetObjectItem(json, key);
-  return cJSON_GetStringValue(val);
-}
-
-void lsp_event_loop(const Gwion gwion) {
-  for(;;) {
-    unsigned long content_length = lsp_parse_header();
-    cJSON *request = lsp_parse_content(content_length);
-    json_rpc(gwion, request);
-    cJSON_Delete(request);
+/*
+ * Converts message body of specified length to cJSON object.
+ *
+ * WARNING: Caller is responsible to free the result.
+ */
+static cJSON* lsp_parse_content(unsigned long content_length) {
+  char *buffer = malloc(content_length + 1);
+  if(!buffer)
+    exit(EXIT_OUT_OF_MEMORY);
+  size_t read_elements = fread(buffer, 1, content_length, stdin);
+  if(read_elements != content_length) {
+    free(buffer);
+    exit(EXIT_IO_ERROR);
   }
+  buffer[content_length] = '\0';
+  cJSON *request = cJSON_Parse(buffer);
+  free(buffer);
+  if(!request) exit(EXIT_PARSE_ERROR);
+  return request;
 }
 
-unsigned long lsp_parse_header(void) {
+static unsigned long lsp_parse_header(void) {
   char buffer[MAX_HEADER_FIELD_LEN];
   unsigned long content_length = 0;
 
@@ -49,25 +54,7 @@ unsigned long lsp_parse_header(void) {
   }
 }
 
-cJSON* lsp_parse_content(unsigned long content_length) {
-  char *buffer = malloc(content_length + 1);
-  if(!buffer)
-    exit(EXIT_OUT_OF_MEMORY);
-  size_t read_elements = fread(buffer, 1, content_length, stdin);
-  if(read_elements != content_length) {
-    free(buffer);
-    exit(EXIT_IO_ERROR);
-  }
-  buffer[content_length] = '\0';
-  cJSON *request = cJSON_Parse(buffer);
-  free(buffer);
-  if(!request) exit(EXIT_PARSE_ERROR);
-  return request;
-}
-
-void lsp_signatureHelp(const Gwion, int id, const cJSON *params_json);
-void lsp_foldingRange(int id, const cJSON *params_json);
-void json_rpc(const Gwion gwion, const cJSON *request) {
+static void json_rpc(const Gwion gwion, const cJSON *request) {
   const char *method;
   int id = -1;
 
@@ -102,75 +89,85 @@ void json_rpc(const Gwion gwion, const cJSON *request) {
     lsp_goto_definition(gwion, id, params_json);
   else if(!strcmp(method, "textDocument/declaration"))
     lsp_goto_definition(gwion, id, params_json);
+  else if(!strcmp(method, "textDocument/implementation"))
+    lsp_goto_definition(gwion, id, params_json);
+  else if(!strcmp(method, "textDocument/typeDefinition"))
+    lsp_goto_type(gwion, id, params_json);
   else if(!strcmp(method, "textDocument/completion"))
     lsp_completion(gwion, id, params_json);
   else if(!strcmp(method, "textDocument/formatting"))
     lsp_format(gwion, id, params_json);
   else if(!strcmp(method, "textDocument/signatureHelp"))
     lsp_signatureHelp(gwion, id, params_json);
+  else if(!strcmp(method, "textDocument/references"))
+    lsp_reference(gwion, id, params_json);
+  else if(!strcmp(method, "textDocument/rename"))
+    lsp_rename(gwion, id, params_json);
   else if(!strcmp(method, "textDocument/foldingRange"))
-    lsp_foldingRange(id, params_json);
+    lsp_foldingRange(gwion, id, params_json);
+  else if(!strcmp(method, "textDocument/documentSymbol"))
+    lsp_symbols(gwion, id, params_json);
+  else if(!strcmp(method, "textDocument/selectionRange"))
+    lsp_selectionRange(gwion, id, params_json);
 }
 
 // *********************
 // LSP helper functions:
 // *********************
 
-Document_LOCATION lsp_parse_document(const cJSON *params_json) {
-  Document_LOCATION document;
+TextDocumentPosition lsp_parse_document(const cJSON *params_json) {
+  TextDocumentPosition document;
 
   const cJSON *text_document_json = cJSON_GetObjectItem(params_json, "textDocument");
-//  document.uri = get_string(text_document_json, "uri");
   document.uri = get_string(text_document_json, "uri");
-//  document.uri += 7;
   if(!document.uri) exit(EXIT_CONTENT_INCOMPLETE);
 
   const cJSON *position_json = cJSON_GetObjectItem(params_json, "position");
   const cJSON *line_json = cJSON_GetObjectItem(position_json, "line");
   if(!cJSON_IsNumber(line_json)) {
-    return document;
     exit(EXIT_CONTENT_INCOMPLETE);
   }
-  document.line = line_json->valueint;
+  document.pos.line = line_json->valueint;
   const cJSON *character_json = cJSON_GetObjectItem(position_json, "character");
   if(!cJSON_IsNumber(character_json)) {
     exit(EXIT_CONTENT_INCOMPLETE);
   }
-  document.character = character_json->valueint;
+  document.pos.column = character_json->valueint;
   return document;
 }
 
-void lsp_send_response(int id, cJSON *result) {
+static cJSON *rpc_ini(void) {
   cJSON *response = cJSON_CreateObject();
   cJSON_AddStringToObject(response, "jsonrpc", "2.0");
-  cJSON_AddNumberToObject(response, "id", id);
-  if(result != NULL)
-    cJSON_AddItemToObject(response, "result", result);
+  return response;
+}
 
+ANN static void rpc_end(cJSON *response) {
   char *output = cJSON_Print(response);
-  //cJSON_Minify(output); 
-  printf("Content-Length: %lu\r\n\r\n", strlen(output));
-  fwrite(output, 1, strlen(output), stdout);
-  fflush(stdout);
-  free(output);
+  if(output) {
+    cJSON_Minify(output); 
+    printf("Content-Length: %lu\r\n\r\n", strlen(output));
+    fwrite(output, 1, strlen(output), stdout);
+    fflush(stdout);
+    free(output);
+  }
   cJSON_Delete(response);
-  fflush(stdout);
+}
+
+void lsp_send_response(int id, cJSON *result) {
+  cJSON *response = rpc_ini();
+  cJSON_AddNumberToObject(response, "id", id);
+  if(result)
+    cJSON_AddItemToObject(response, "result", result);
+  rpc_end(response);
 }
 
 void lsp_send_notification(const char *method, cJSON *params) {
-  cJSON *response = cJSON_CreateObject();
-  cJSON_AddStringToObject(response, "jsonrpc", "2.0");
+  cJSON *response = rpc_ini();
   cJSON_AddStringToObject(response, "method", method);
-  if(params != NULL)
+  if(params)
     cJSON_AddItemToObject(response, "params", params);
-
-  char *output = cJSON_Print(response);
-  printf("Content-Length: %lu\r\n\r\n", strlen(output));
-  fwrite(output, 1, strlen(output), stdout);
-  fflush(stdout);
-  free(output);
-  cJSON_Delete(response);
-  fflush(stdout);
+  rpc_end(response);
 }
 
 // **************
@@ -230,6 +227,8 @@ void lsp_initialize(Gwion gwion, int id, const cJSON *params) {
   cJSON_AddBoolToObject(capabilities, "hoverProvider", 1);
   cJSON_AddBoolToObject(capabilities, "definitionProvider", 1);
   cJSON_AddBoolToObject(capabilities, "declarationProvider", 1);
+  cJSON_AddBoolToObject(capabilities, "implementationProvider", 1);
+  cJSON_AddBoolToObject(capabilities, "typeDefinitionProvider", 1);
   cJSON_AddBoolToObject(capabilities, "documentFormattingProvider", 1);
   cJSON *completion = cJSON_AddObjectToObject(capabilities, "completionProvider");
   cJSON_AddBoolToObject(completion, "resolveProvider", 0);
@@ -237,13 +236,27 @@ void lsp_initialize(Gwion gwion, int id, const cJSON *params) {
 
   cJSON_AddBoolToObject(capabilities, "foldingRangeProvider", 1);
 
-    cJSON *signature = cJSON_AddObjectToObject(capabilities, "signatureHelpProvider");
-    cJSON *triggerCharacters = cJSON_AddArrayToObject(signature, "triggerCharacter");
-    cJSON_AddItemToArray(triggerCharacters, cJSON_CreateString("("));
-    cJSON *retriggerCharacters = cJSON_AddArrayToObject(signature, "retriggerCharacter");
-    cJSON_AddItemToArray(retriggerCharacters, cJSON_CreateString(","));
+  cJSON_AddBoolToObject(capabilities, "referencesProvider", 1);
+  cJSON_AddBoolToObject(capabilities, "renameProvider", 1);
+  cJSON_AddBoolToObject(capabilities, "documentSymbolProvider", 1);
+  cJSON_AddBoolToObject(capabilities, "selectionRangeProvider", 1);
+
+  cJSON *signature = cJSON_AddObjectToObject(capabilities, "signatureHelpProvider");
+  cJSON *triggerCharacters = cJSON_AddArrayToObject(signature, "triggerCharacters");
+  cJSON_AddItemToArray(triggerCharacters, cJSON_CreateString("("));
+  cJSON *retriggerCharacters = cJSON_AddArrayToObject(signature, "retriggerCharacters");
+  cJSON_AddItemToArray(retriggerCharacters, cJSON_CreateString(","));
 
   lsp_send_response(id, result);
+}
+
+void lsp_event_loop(const Gwion gwion) {
+  for(;;) {
+    unsigned long content_length = lsp_parse_header();
+    cJSON *request = lsp_parse_content(content_length);
+    json_rpc(gwion, request);
+    cJSON_Delete(request);
+  }
 }
 
 void lsp_shutdown(int id) {
@@ -252,196 +265,4 @@ void lsp_shutdown(int id) {
 
 void lsp_exit(void) {
   exit(0);
-}
-
-Context get_context(void);
-
-void lsp_sync_open(const Gwion gwion, const cJSON *params_json) {
-  const cJSON *text_document_json = cJSON_GetObjectItem(params_json, "textDocument");
-  char *const uri = get_string(text_document_json, "uri");
-  const char *text = get_string(text_document_json, "text");
-
-  if(!uri || !text) exit(EXIT_CONTENT_INCOMPLETE);
-
-  Buffer *buffer = open_buffer(gwion->mp, uri, text);
-  lsp_gwfmt(gwion, uri + 7, buffer);
-  Context context = get_context();
-  buffer->context = context;
-}
-
-void lsp_sync_change(const Gwion gwion, const cJSON *params_json) {
-  const cJSON *text_document_json = cJSON_GetObjectItem(params_json, "textDocument");
-  char *const uri = get_string(text_document_json, "uri");
-  const cJSON *content_changes_json = cJSON_GetObjectItem(params_json, "contentChanges");
-  const cJSON *content_change_json = cJSON_GetArrayItem(content_changes_json, 0);
-  const char *text = get_string(content_change_json, "text");
-  if(!uri || !text) {
-    message("incomplete content", LSP_ERROR);
-    return;
-  }
-  Buffer *buffer = update_buffer(gwion->mp, uri, text);
-//  const Nspc global = buffer->context->nspc->parent;
- // free_context(buffer->context, gwion);
-
-  //  context_remref(buffer->context, gwion);
-
-  //  if(buffer->context->global)
-//    free_nspc(global, gwion);
-  lsp_gwfmt(gwion, uri + 7, buffer);
-  Context context = get_context();
-  buffer->context = context;
-}
-
-void lsp_sync_close(const Gwion gwion, const cJSON *params_json) {
-  const cJSON *text_document_json = cJSON_GetObjectItem(params_json, "textDocument");
-  const char *uri = get_string(text_document_json, "uri");
-  if(!uri) {
-    message("incomplete content", LSP_ERROR);
-    return;
-  }
-  close_buffer(gwion, uri);
-  lsp_gwfmt_clear(uri);
-}
-
-static bool get_parse_uri_files(cJSON *files, const char *uri) {
-  for(int i = 0; i < cJSON_GetArraySize(files); i++) {
-    cJSON *target = cJSON_GetArrayItem(files, i);
-    const char *file = cJSON_GetStringValue(target);
-    if(!strcmp(realpath(file, NULL), uri)) return true;
-  }
-  return false;
-}
-
-static const char* get_parse_uri_workspace(cJSON *workspaces, const char *uri) {
-  for(int i = 0; i < cJSON_GetArraySize(workspaces); i++) {
-    cJSON *workspace = cJSON_GetArrayItem(workspaces, i);
-    char *const root = get_string(workspace, "base");
-    if(!strcmp(uri , root)) return uri;
-    cJSON *files    = cJSON_GetObjectItem(workspace, "files");
-    if(get_parse_uri_files(files, uri))
-      return uri;
-  }
-  return uri;
-}
-
-static char* get_parse_uri(char *uri) {
-  for(int i = 0; i < cJSON_GetArraySize(workspaces); i++) {
-    cJSON *workspace = cJSON_GetArrayItem(workspaces, i);
-    cJSON *roots      = cJSON_GetObjectItem(workspace, "roots");
-    if(!roots) return uri;
-    const char *root = get_parse_uri_workspace(roots, uri);
-    if(root) {
-      if(!strcmp(root, uri)) return uri;
-      return realpath(root, NULL);
-    }
-  }
-  return uri;
-}
-
-void lsp_gwfmt(const Gwion gwion, char *const request, Buffer *buffer) {
-  MP_Vector *infos = new_mp_vector(gwion->mp, DiagnosticInfo, 0);
-  char *uri = get_parse_uri(request);
-  gwiond_parse(gwion, &infos, uri, buffer->content);
-  if(uri != request) free(uri); // we could have a threadlocal string[PATH_MAX]
-  if(!infos->len) lsp_gwfmt_clear(uri - 7);
-  else {
-    for(uint32_t i = 0; i < infos->len; i++) {
-      DiagnosticInfo *info = mp_vector_at(infos, DiagnosticInfo, i);
-      lsp_send_notification("textDocument/publishDiagnostics", info->cjson);
-    }
-  }
-  free_mp_vector(gwion->mp, DiagnosticInfo, infos);
-}
-
-void lsp_gwfmt_clear(const char *uri) {
-// we should send to all files if *workspace*?
-//  char *const uri = get_parse_uri(request);
-  cJSON *params = cJSON_CreateObject();
-  cJSON_AddStringToObject(params, "uri", uri);
-  cJSON_AddArrayToObject(params, "diagnostics");
-  lsp_send_notification("textDocument/publishDiagnostics", params);
-  // not a mistake, we are comparing the pointers
-//  if(uri != request) free(uri); // we could have a threadlocal string[PATH_MAX]
-}
-
-ANN static Value value_pass(const Gwion gwion, const Context context ,const char *uri, Document_LOCATION document) {
-  Hover fv = {
-    .filename = { 
-      .target = document.uri + 7,
-      .source = uri + 7,
-    },
-    .gwion = gwion,
-    .pos = (pos_t) {
-      .line = document.line,
-      .column = document.character + 1, // WHY?????
-    },
-  };
-  if(hover_ast(&fv, context->tree))
-    return fv.value;
-  return NULL;
-}
-
-ANN static Value get_value(const Gwion gwion, const cJSON *params_json) {
-  Document_LOCATION document = lsp_parse_document(params_json);
-  char *uri = get_parse_uri(document.uri);
-  Buffer buffer = get_buffer(uri);
-  const Value value = value_pass(gwion, buffer.context, uri, document);
-  if(uri != document.uri) free(uri);
-  return value;
-} 
-ANN static char* value_info(const Gwion gwion, const Value v) {
-  char *str = NULL;
-  char *name = v->name;
-  gw_asprintf(gwion->mp, &str,
-"```markdown\n"
-"## (%s) `%s`\n"
-"```md\n-------------\n"
-"```markdown\n### of type: `%s`\n"
-"```md\n------------\n"
-"```markdown\n### in file: *%s*\n",
-// TODO: closures, enum and stuff?
-v->type ?              // 
-is_class(gwion, v->type) ? "class" :
-is_func(gwion, v->type) ? "function" :
-"variable" : "unknown",
-name, v->type->name, v->from->filename);
-  return str;
-}
-
-void lsp_hover(const Gwion gwion, int id, const cJSON *params_json) {
-  const Value value = get_value(gwion, params_json);
-  if(!value) return;
-  cJSON *result = cJSON_CreateObject();
-  cJSON *array = cJSON_AddArrayToObject(result, "contents");
-  char *str = value_info(gwion, value);
-  cJSON *contents = cJSON_CreateString(str); 
-  free_mstr(gwion->mp, str);
-  cJSON_AddItemToArray(array, contents);
-  lsp_send_response(id, result);
-}
-
-/*static*/ cJSON* json_range(cJSON *base, const loc_t loc);
-
-void lsp_goto_definition(const Gwion gwion, int id, const cJSON *params_json) {
-  const Value value = get_value(gwion, params_json);
-  if(!value) return;
-  // do we need to rebuild uri here?
-  // for value's filename
-  cJSON *result = cJSON_CreateObject();
-  cJSON_AddStringToObject(result, "uri", value->from->filename);
-  json_range(result, value->from->loc); 
-  lsp_send_response(id, result);
-}
-
-void lsp_completion(const Gwion gwion, int id, const cJSON *params_json) {
-  Document_LOCATION document = lsp_parse_document(params_json);
-
-  Buffer buffer = get_buffer(document.uri);
-  char *text = strdup(buffer.content);
-  truncate_string(text, document.line, document.character);
-  const char *symbol_name_part  = extract_last_symbol(text);
-  cJSON *result = symbol_completion(gwion, symbol_name_part, text);
-  free(text);
-
-  lsp_send_response(id, result);
 }

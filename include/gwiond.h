@@ -10,10 +10,14 @@ cJSON* symbol_completion(const Gwion, const char *symbol_name_part, const char *
 Gwion gwiond_ini(void);
 void gwiond_end(void);
 
-typedef struct {
+typedef struct Diagnostic {
   const char *filename;
   cJSON *cjson;
-} DiagnosticInfo;
+} Diagnostic;
+MK_VECTOR_TYPE(Diagnostic, diagnostic)
 
-void gwiond_parse(const Gwion gwion, MP_Vector **diagnostics, const char *filename, char *text);
+void gwiond_parse(const Gwion gwion, DiagnosticList **diagnostics, const char *filename, Buffer*);
+
+ANN bool doc_pass(const Env env, Ast *b);
+Context get_context(void);
 #endif /* end of include guard: MINIC_H */

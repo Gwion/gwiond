@@ -3,6 +3,7 @@ CFLAGS += -I../ast/include
 CFLAGS += -I../fmt/include
 CFLAGS += -I../include
 CFLAGS += -Iinclude
+
 #CFLAGS += -Wall
 CFLAGS += -Wextra
 
@@ -16,7 +17,8 @@ LDFLAGS += -O3
 LDFLAGS += -fwhole-program
 
 SRC := $(wildcard src/*.c)
-OBJ := $(SRC:.c=.o)
+SRC += $(wildcard src/feat/*/*.c)
+OBJ := $(SRC:src/%.c=build/%.o)
 
 .PHONY: clean options
 
@@ -35,19 +37,25 @@ options:
 install:
 	install -m 777 gwiond /usr/bin
 
-.c.o:
-	$(info compile $(<:.c=))
-	@${CC} $(DEPFLAGS) ${CFLAGS} -c $< -o $(<:.c=.o)
-	@mv -f $(DEPDIR)/$(@F:.o=.Td) $(DEPDIR)/$(@F:.o=.d) && touch $@
-	@echo $@: config.mk >> $(DEPDIR)/$(@F:.o=.d)
+build/%.o: $(subst build,src, $(@:.o=.c))
+	$(info compile $(subst build/,,$(@:.o=)))
+	@mkdir -p $(shell dirname $@) > /dev/null
+	@mkdir -p $(subst build,.d,$(shell dirname $@)) > /dev/null
+	@${CC} $(DEPFLAGS) ${CFLAGS} -c $(subst build,src,$(@:.o=.c)) -o $@
+	@mv -f $(subst build,${DEPDIR},$(@:.o=.Td)) $(subst build,${DEPDIR},$(@:.o=.d)) && touch $@
 
 DEPDIR := .d
 $(shell mkdir -p $(DEPDIR) >/dev/null)
-DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$(@F:.o=.Td)
+DEPFLAGS = -MT $@ -MMD -MP -MF $(subst build,${DEPDIR},$(@:.o=.Td))
+DEPS := $(subst build,$(DEPDIR),$(OBJ:.o=.d))
+-include $(DEPS)
+
 
 define _options
   $(info CC      : ${CC})
   $(info CFLAGS  : ${CFLAGS})
   $(info LDFLAGS : ${LDFLAGS})
+  
+  $(info DEPS : ${DEPS})
 endef
 

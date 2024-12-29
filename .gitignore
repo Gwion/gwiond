@@ -1,4 +1,9 @@
-src/*.o
+build
 gwiond
 .d
+
+# for local testing purposes
 run.sh
+
+# i keep a copy of the LSP specs locally
+language-server-protocol

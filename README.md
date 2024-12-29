@@ -7,8 +7,21 @@
 * [x] Diagnostics
 * [x] Hover information
 * [x] Code completion
-* [x] Go to definition
+* [x] Go to definition/declaration/implementation
+* [x] Go to type definition
 * [x] Formatting
+* [x] Folding
+* [x] References
+* [x] Renaming
+* [-] Signatures
+* [x] Selection range
+* [ ] Inlay hints
+* [ ] Inline values (needs DAP?)
+* [ ] Call tree
+* [ ] Type tree
+* [ ] Highlight
+* [x] Symbols
+* [ ] Semantic tokens
 
 ## Prerequisites
 

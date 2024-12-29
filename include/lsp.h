@@ -9,37 +9,19 @@
  */
 void lsp_event_loop(const Gwion);
 
-/*
- * Parses message header and returns the content length.
- */
-unsigned long lsp_parse_header(void);
-
-/*
- * Converts message body of specified length to cJSON object.
- *
- * WARNING: Caller is responsible to free the result.
- */
-cJSON* lsp_parse_content(unsigned long content_length);
-
-/*
- * Parses RPC request and calls the appropriate function.
- */
-void json_rpc(const Gwion, const cJSON *request);
-
 // *********************
 // LSP helper functions:
 // *********************
 
 typedef struct {
   char *uri;
-  int line;
-  int character;
-} Document_LOCATION;
+  pos_t pos;
+} TextDocumentPosition;
 
 /*
  * Parses document location from LSP request.
  */
-Document_LOCATION lsp_parse_document(const cJSON *params_json);
+TextDocumentPosition lsp_parse_document(const cJSON *params_json);
 
 /*
  * Sends a LSP message response.
@@ -71,36 +53,20 @@ void lsp_shutdown(int id);
  */
 void lsp_exit(void);
 
-/*
- * Parses LSP text sync notifications, and updates buffers and diagnostics.
- */
 void lsp_sync_open(const Gwion, const cJSON *params_json);
 void lsp_sync_change(const Gwion, const cJSON *params_json);
 void lsp_sync_close(const Gwion, const cJSON *params_json);
-
-/*
- * Runs a gwfmter and returns LSP publish diagnostics notification.
- */
-void lsp_gwfmt(const Gwion, char *const uri, Buffer *buffer);
+void lsp_signatureHelp(const Gwion, int id, const cJSON *params_json);
+void lsp_foldingRange(Gwion gwion, int id, const cJSON *params_json);
+void lsp_selectionRange(Gwion gwion, int id, const cJSON *params_json);
+void lsp_diagnostics(const Gwion, char *const uri, Buffer *buffer);
 void lsp_format(const Gwion, int id, const cJSON *params_json);
-/*
- * Clears diagnostics for a file with specified `uri`.
- */
-void lsp_gwfmt_clear(const char *uri);
-
-/*
- * Parses LSP hover request, and returns hover information.
- */
 void lsp_hover(const Gwion, int id, const cJSON *params_json);
-
-/*
- * Parses LSP definition request, and returns jump position.
- */
+void lsp_reference(const Gwion, int id, const cJSON *params_json);
+void lsp_symbols(const Gwion, int id, const cJSON *params_json);
+void lsp_rename(const Gwion, int id, const cJSON *params_json);
 void lsp_goto_definition(const Gwion, int id, const cJSON *params_json);
-
-/*
- * Parses LSP completion request, and returns completion results.
- */
+void lsp_goto_type(const Gwion, int id, const cJSON *params_json);
 void lsp_completion(const Gwion, int id, const cJSON *params_json);
 
 static inline void message(const char* message, int severity) {
@@ -109,4 +75,5 @@ static inline void message(const char* message, int severity) {
     cJSON_AddStringToObject(json, "message", message);
     lsp_send_notification("window/showMessage", json);
 }
+ANN m_str get_doc(Context context, void *data);
 #endif /* end of include guard: LSP_H */

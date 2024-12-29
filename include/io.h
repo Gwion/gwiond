@@ -1,12 +1,25 @@
 #ifndef IO_H
 #define IO_H
 
-#define BUFFER_LENGTH 100
+//#define BUFFER_LENGTH 100
+#define BUFFER_LENGTH 50
+
 typedef struct {
   char *uri;
   char *content;
   Context context;
+  CommentList *comments;
+  struct Map_     docs;
 } Buffer;
+
+MK_VECTOR_TYPE(Buffer, buffer);
+
+typedef struct Workspace {
+  BufferList *buffers;  
+  Gwion Gwion;
+  // Lsp *lsp
+} Workspace;
+
 
 /*
  * Opens a new buffer.
@@ -36,7 +49,6 @@ void truncate_string(char *text, int line, int character);
 /*
  * Returns the last symbol in a string.
  */
-char *extract_last_symbol(char *text);
+char *extract_last_symbol(char *text, bool *dot);
 
-ANN void io_ini(MemPool mp);
 #endif /* end of include guard: IO_H */
